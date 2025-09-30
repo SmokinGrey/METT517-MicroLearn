@@ -1,7 +1,12 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, File, UploadFile
 from pydantic import BaseModel
 from passlib.context import CryptContext
 from typing import List
+import io
+
+# PDF 및 DOCX 처리를 위한 라이브러리 임포트
+import docx
+from pypdf2 import PdfReader
 
 app = FastAPI()
 
@@ -22,7 +27,7 @@ class UserInDB(BaseModel):
     username: str
     hashed_password: str
 
-# --- 신규 추가: AI 기능 모델 ---
+# --- AI 기능 모델 ---
 
 class TextToSummarize(BaseModel):
     text: str
@@ -39,7 +44,6 @@ def read_root():
 
 @app.post("/register/", response_model=UserInDB)
 def register_user(user: UserCreate):
-    # Check if user already exists
     for existing_user in fake_users_db:
         if existing_user["username"] == user.username:
             raise HTTPException(status_code=400, detail="Username already registered")
@@ -49,22 +53,56 @@ def register_user(user: UserCreate):
     fake_users_db.append(user_in_db)
     return user_in_db
 
-# --- 신규 추가: AI 기능 엔드포인트 ---
-
 @app.post("/api/summarize", response_model=SummaryResponse)
 async def summarize_text(payload: TextToSummarize):
     """
     입력된 텍스트를 요약합니다.
-    MVP 단계에서는 실제 AI 대신 간단한 로직으로 대체합니다.
     """
     input_text = payload.text
     if not input_text or not input_text.strip():
         raise HTTPException(status_code=400, detail="Text to summarize cannot be empty.")
 
-    # TODO: 여기에 실제 AI API (OpenAI, Gemini 등) 호출 로직을 구현합니다.
-    # 예: summary = await call_ai_summary_api(input_text)
-    
-    # 임시 요약 로직 (처음 100자 + '...')
+    # TODO: 여기에 실제 AI API 호출 로직을 구현합니다.
     summary = f"[임시 요약] {input_text[:100]}..."
+    return SummaryResponse(summary=summary)
 
+# --- 신규 추가: 파일 업로드 및 요약 엔드포인트 ---
+
+@app.post("/api/upload-and-summarize", response_model=SummaryResponse)
+async def upload_and_summarize_file(file: UploadFile = File(...)):
+    """
+    업로드된 파일(.txt, .pdf, .docx)에서 텍스트를 추출하고 요약합니다.
+    """
+    filename = file.filename
+    if not (filename.endswith(".txt") or filename.endswith(".pdf") or filename.endswith(".docx")):
+        raise HTTPException(status_code=400, detail="Unsupported file type. Please upload .txt, .pdf, or .docx files.")
+
+    extracted_text = ""
+    try:
+        contents = await file.read()
+        
+        if filename.endswith(".txt"):
+            extracted_text = contents.decode("utf-8")
+        
+        elif filename.endswith(".pdf"):
+            with io.BytesIO(contents) as f:
+                reader = PdfReader(f)
+                for page in reader.pages:
+                    extracted_text += page.extract_text() or ""
+        
+        elif filename.endswith(".docx"):
+            with io.BytesIO(contents) as f:
+                doc = docx.Document(f)
+                for para in doc.paragraphs:
+                    extracted_text += para.text + "\n"
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
+
+    if not extracted_text or not extracted_text.strip():
+        raise HTTPException(status_code=400, detail="Could not extract text from the file or the file is empty.")
+
+    # 기존의 임시 요약 로직 재사용
+    # TODO: 여기에 실제 AI API 호출 로직을 구현합니다.
+    summary = f"[파일 요약] {extracted_text[:100]}..."
     return SummaryResponse(summary=summary)
