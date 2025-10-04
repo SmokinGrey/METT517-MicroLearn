@@ -64,6 +64,32 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Username already registered")
     return crud.create_user(db=db, user=user)
 
+@app.get("/users/me", response_model=schemas.User)
+async def read_users_me(current_user: schemas.User = Depends(auth.get_current_user)):
+    return current_user
+
+@app.post("/api/generate-materials", response_model=schemas.LearningMaterial)
+async def generate_materials(source_text: schemas.SourceText, current_user: schemas.User = Depends(auth.get_current_user)):
+    """
+    입력된 텍스트를 기반으로 통합 학습 자료를 생성합니다. (로그인 필요)
+    현재는 목업 데이터를 반환합니다.
+    """
+    # TODO: 여기에 실제 AI API 호출 로직을 구현합니다.
+    # AI 호출 시 source_text.text 를 사용합니다.
+    mock_data = schemas.LearningMaterial(
+        summary="이것은 AI가 생성한 목업 요약입니다. 원본 텍스트의 핵심 내용을 담고 있습니다.",
+        key_topics=["핵심 주제 1", "핵심 주제 2", "중요 컨셉 3"],
+        quiz=[
+            schemas.QuizItem(question="첫 번째 질문입니다. 정답은 무엇일까요?", options=["A", "B", "C", "D"], answer="A"),
+            schemas.QuizItem(question="두 번째 질문입니다. 이 개념을 설명하세요.", options=["보기1", "보기2", "보기3", "보기4"], answer="보기2"),
+        ],
+        flashcards=[
+            schemas.FlashcardItem(term="용어 1", definition="용어 1에 대한 설명입니다."),
+            schemas.FlashcardItem(term="용어 2", definition="용어 2에 대한 상세한 설명입니다."),
+        ]
+    )
+    return mock_data
+
 
 @app.get("/users/", response_model=list[schemas.User])
 def read_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):

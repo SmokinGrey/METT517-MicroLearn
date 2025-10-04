@@ -1,6 +1,29 @@
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, Field
+from typing import Optional, List
 
+
+# --- MicroLearn Core Models ---
+
+class QuizItem(BaseModel):
+    question: str
+    options: List[str]
+    answer: str
+
+class FlashcardItem(BaseModel):
+    term: str
+    definition: str
+
+class LearningMaterial(BaseModel):
+    summary: str
+    key_topics: List[str]
+    quiz: List[QuizItem]
+    flashcards: List[FlashcardItem]
+
+class SourceText(BaseModel):
+    text: str
+
+
+# --- Auth Models ---
 
 class Token(BaseModel):
     access_token: str
