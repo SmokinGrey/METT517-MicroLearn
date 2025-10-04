@@ -1,9 +1,13 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuthStore } from '../store/authStore';
 
 function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
+  const setToken = useAuthStore((state) => state.setToken);
+  const navigate = useNavigate();
 
   const handleLogin = async () => {
     setMessage('');
@@ -26,9 +30,9 @@ function LoginPage() {
         throw new Error(data.detail || '로그인에 실패했습니다.');
       }
 
-      // TODO: 발급받은 토큰(data.access_token)을 저장하는 로직 추가
-      console.log('Access Token:', data.access_token);
-      setMessage('로그인 성공! 토큰이 콘솔에 출력되었습니다.');
+      setToken(data.access_token);
+      setMessage('로그인 성공! 메인 페이지로 이동합니다.');
+      navigate('/');
 
     } catch (error: any) {
       setMessage(error.message);

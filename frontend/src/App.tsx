@@ -1,17 +1,32 @@
 import React from 'react';
-import { Route, Routes, Link } from 'react-router-dom';
+import { Route, Routes, Link, useNavigate } from 'react-router-dom';
 import './App.css';
 import MainPage from './pages/MainPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
+import { useAuthStore } from './store/authStore';
 
 function App() {
+  const { token, clearToken } = useAuthStore((state) => state);
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    clearToken();
+    navigate('/login');
+  };
+
   return (
     <div className="App">
       <nav style={{ padding: '1rem', backgroundColor: '#20232a', textAlign: 'left' }}>
         <Link to="/" style={{ color: 'white', marginRight: '1rem' }}>메인</Link>
-        <Link to="/login" style={{ color: 'white', marginRight: '1rem' }}>로그인</Link>
-        <Link to="/register" style={{ color: 'white' }}>회원가입</Link>
+        {token ? (
+          <button onClick={handleLogout} style={{ color: 'white', background: 'none', border: 'none', cursor: 'pointer', fontSize: '1em' }}>로그아웃</button>
+        ) : (
+          <>
+            <Link to="/login" style={{ color: 'white', marginRight: '1rem' }}>로그인</Link>
+            <Link to="/register" style={{ color: 'white' }}>회원가입</Link>
+          </>
+        )}
       </nav>
       <Routes>
           <Route path="/" element={<MainPage />} />
