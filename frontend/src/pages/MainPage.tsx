@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import '../App.css';
 import { useAuthStore } from '../store/authStore';
+import LearningMaterialDisplay from '../components/LearningMaterialDisplay';
 
-// 임시: 스키마를 공유하지 않으므로 프론트엔드에서 직접 타입을 정의합니다.
+// API 응답에 대한 타입 정의
 interface QuizItem {
   question: string;
   options: string[];
@@ -34,7 +35,7 @@ function MainPage() {
       return;
     }
     if (!token) {
-      setError('로그인이 필요합니다.');
+      setError('로그인이 필요합니다. 로그인 페이지로 이동하여 로그인해주세요.');
       return;
     }
 
@@ -87,34 +88,7 @@ function MainPage() {
       
       {error && <p className="error-message">{error}</p>}
 
-      {materials && (
-        <div className="summary-result" style={{ textAlign: 'left' }}>
-          <h2>요약</h2>
-          <p>{materials.summary}</p>
-
-          <h2 style={{ marginTop: '2rem' }}>핵심 주제</h2>
-          <ul>
-            {materials.key_topics.map((topic, index) => (
-              <li key={index}>{topic}</li>
-            ))}
-          </ul>
-
-          <h2 style={{ marginTop: '2rem' }}>자동 생성 퀴즈</h2>
-          {materials.quiz.map((item, index) => (
-            <div key={index} style={{ marginBottom: '1rem' }}>
-              <p><b>Q{index + 1}:</b> {item.question}</p>
-              <p><em>(정답: {item.answer})</em></p>
-            </div>
-          ))}
-
-          <h2 style={{ marginTop: '2rem' }}>자동 생성 용어 카드</h2>
-          {materials.flashcards.map((item, index) => (
-            <div key={index} style={{ marginBottom: '1rem' }}>
-              <p><b>{item.term}:</b> {item.definition}</p>
-            </div>
-          ))}
-        </div>
-      )}
+      {materials && <LearningMaterialDisplay materials={materials} />}
     </header>
   );
 }

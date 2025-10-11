@@ -1,21 +1,27 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+import os
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
+from passlib.context import CryptContext
 
 from . import crud, models, schemas
 from .database import SessionLocal
 
 # --- 설정 ---
-# TODO: 이 값들은 .env 파일로 분리해야 합니다.
-SECRET_KEY = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise ValueError("No SECRET_KEY set for JWT")
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # --- 함수 ---
 

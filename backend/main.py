@@ -1,6 +1,10 @@
 from fastapi import Depends, FastAPI, HTTPException, File, UploadFile, status
 from fastapi.security import OAuth2PasswordRequestForm
 from datetime import timedelta
+import os
+import json
+from dotenv import load_dotenv
+import google.generativeai as genai
 
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -13,6 +17,8 @@ from pypdf2 import PdfReader
 
 from . import auth, crud, models, schemas
 from .database import SessionLocal, engine
+
+load_dotenv() # .env 파일에서 환경 변수 로드
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -72,23 +78,82 @@ async def read_users_me(current_user: schemas.User = Depends(auth.get_current_us
 async def generate_materials(source_text: schemas.SourceText, current_user: schemas.User = Depends(auth.get_current_user)):
     """
     입력된 텍스트를 기반으로 통합 학습 자료를 생성합니다. (로그인 필요)
-    현재는 목업 데이터를 반환합니다.
     """
-    # TODO: 여기에 실제 AI API 호출 로직을 구현합니다.
-    # AI 호출 시 source_text.text 를 사용합니다.
-    mock_data = schemas.LearningMaterial(
-        summary="이것은 AI가 생성한 목업 요약입니다. 원본 텍스트의 핵심 내용을 담고 있습니다.",
-        key_topics=["핵심 주제 1", "핵심 주제 2", "중요 컨셉 3"],
-        quiz=[
-            schemas.QuizItem(question="첫 번째 질문입니다. 정답은 무엇일까요?", options=["A", "B", "C", "D"], answer="A"),
-            schemas.QuizItem(question="두 번째 질문입니다. 이 개념을 설명하세요.", options=["보기1", "보기2", "보기3", "보기4"], answer="보기2"),
-        ],
-        flashcards=[
-            schemas.FlashcardItem(term="용어 1", definition="용어 1에 대한 설명입니다."),
-            schemas.FlashcardItem(term="용어 2", definition="용어 2에 대한 상세한 설명입니다."),
-        ]
-    )
-    return mock_data
+    api_key = os.getenv("GEMINI_API_KEY")
+
+    # API 키가 없거나 임시 키일 경우 목업 데이터 반환
+    if not api_key or api_key == "YOUR_API_KEY_HERE":
+        print("Warning: GEMINI_API_KEY is not configured. Returning mock data.")
+        mock_data = schemas.LearningMaterial(
+            summary="[목업 데이터] 이것은 AI가 생성한 목업 요약입니다. 원본 텍스트의 핵심 내용을 담고 있습니다.",
+            key_topics=["핵심 주제 1", "핵심 주제 2", "중요 컨셉 3"],
+            quiz=[
+                schemas.QuizItem(question="첫 번째 질문입니다. 정답은 무엇일까요?", options=["A", "B", "C", "D"], answer="A"),
+                schemas.QuizItem(question="두 번째 질문입니다. 이 개념을 설명하세요.", options=["보기1", "보기2", "보기3", "보기4"], answer="보기2"),
+            ],
+            flashcards=[
+                schemas.FlashcardItem(term="용어 1", definition="용어 1에 대한 설명입니다."),
+                schemas.FlashcardItem(term="용어 2", definition="용어 2에 대한 상세한 설명입니다."),
+            ]
+        )
+        return mock_data
+
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+
+        prompt = f"""다음 텍스트를 분석하여 마이크로러닝 학습 자료를 생성해줘. 반드시 아래의 JSON 형식과 동일한 구조로 응답해야 해. 각 필드에 대한 설명은 다음과 같아.
+
+- summary: 텍스트의 핵심 내용을 요약한 문단.
+- key_topics: 텍스트의 핵심 주제나 키워드를 담은 문자열 배열.
+- quiz: 텍스트의 내용을 바탕으로 한 객관식 퀴즈 2개. options는 4개의 선택지를 포함해야 하고, answer는 그 중 정답 텍스트여야 해.
+- flashcards: 텍스트에 등장하는 중요 용어와 그 설명을 담은 용어 카드 2개.
+
+**분석할 텍스트:**
+{source_text.text}
+
+**JSON 출력 형식:**
+{{
+  "summary": "<요약 내용>",
+  "key_topics": ["<주제1>", "<주제2>", ...],
+  "quiz": [
+    {{
+      "question": "<질문1>",
+      "options": ["<선택지1>", "<선택지2>", "<선택지3>", "<선택지4>"],
+      "answer": "<정답>"
+    }},
+    {{
+      "question": "<질문2>",
+      "options": ["<선택지1>", "<선택지2>", "<선택지3>", "<선택지4>"],
+      "answer": "<정답>"
+    }}
+  ],
+  "flashcards": [
+    {{
+      "term": "<용어1>",
+      "definition": "<설명1>"
+    }},
+    {{
+      "term": "<용어2>",
+      "definition": "<설명2>"
+    }}
+  ]
+}}
+"""
+
+        response = await model.generate_content_async(prompt)
+        
+        # 응답 텍스트에서 JSON 부분만 추출
+        cleaned_response_text = response.text.strip().replace('```json', '').replace('```', '')
+        
+        # JSON 파싱
+        response_json = json.loads(cleaned_response_text)
+        
+        return schemas.LearningMaterial(**response_json)
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        raise HTTPException(status_code=500, detail="AI 자료 생성 중 오류가 발생했습니다.")
 
 
 @app.get("/users/", response_model=list[schemas.User])
