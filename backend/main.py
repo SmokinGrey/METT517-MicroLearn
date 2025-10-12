@@ -74,6 +74,57 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
 async def read_users_me(current_user: schemas.User = Depends(auth.get_current_user)):
     return current_user
 
+@app.post("/api/generate-materials-from-file", response_model=schemas.LearningMaterial)
+async def generate_materials_from_file(file: UploadFile = File(...), current_user: schemas.User = Depends(auth.get_current_user)):
+    """
+    업로드된 파일(.txt, .pdf, .docx)에서 텍스트를 추출하고 통합 학습 자료를 생성합니다. (로그인 필요)
+    """
+    filename = file.filename
+    if not (filename.endswith(".txt") or filename.endswith(".pdf") or filename.endswith(".docx")):
+        raise HTTPException(status_code=400, detail="Unsupported file type. Please upload .txt, .pdf, or .docx files.")
+
+    extracted_text = ""
+    try:
+        contents = await file.read()
+        
+        if filename.endswith(".txt"):
+            extracted_text = contents.decode("utf-8")
+        
+        elif filename.endswith(".pdf"):
+            with io.BytesIO(contents) as f:
+                reader = PdfReader(f)
+                for page in reader.pages:
+                    extracted_text += page.extract_text() or ""
+        
+        elif filename.endswith(".docx"):
+            with io.BytesIO(contents) as f:
+                doc = docx.Document(f)
+                for para in doc.paragraphs:
+                    extracted_text += para.text + "\n"
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
+
+    if not extracted_text or not extracted_text.strip():
+        raise HTTPException(status_code=400, detail="Could not extract text from the file or the file is empty.")
+
+    # TODO: 이 추출된 텍스트(extracted_text)를 실제 AI 호출 로직에 전달해야 합니다.
+    # 현재는 텍스트 기반 엔드포인트와 동일한 목업 데이터를 반환합니다.
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key or api_key == "YOUR_API_KEY_HERE":
+        mock_data = schemas.LearningMaterial(
+            summary="[파일 기반 목업 데이터] 이것은 AI가 생성한 목업 요약입니다.",
+            key_topics=["파일 주제 1", "파일 주제 2"],
+            quiz=[schemas.QuizItem(question="파일 기반 질문입니다. 정답은?", options=["A", "B"], answer="A")],
+            flashcards=[schemas.FlashcardItem(term="파일 용어", definition="파일 용어에 대한 설명입니다.")]
+        )
+        return mock_data
+    
+    # 실제 AI 호출 로직 (텍스트 기반 엔드포인트의 로직 재사용 또는 별도 구현)
+    # ...
+    raise HTTPException(status_code=501, detail="AI integration for file upload is not implemented yet.")
+
+
 @app.post("/api/generate-materials", response_model=schemas.LearningMaterial)
 async def generate_materials(source_text: schemas.SourceText, current_user: schemas.User = Depends(auth.get_current_user)):
     """
