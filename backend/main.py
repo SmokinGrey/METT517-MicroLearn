@@ -74,8 +74,16 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
 async def read_users_me(current_user: schemas.User = Depends(auth.get_current_user)):
     return current_user
 
+@app.get("/api/my-materials", response_model=List[schemas.LearningMaterial])
+def read_my_materials(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: schemas.User = Depends(auth.get_current_user)):
+    """
+    현재 로그인된 사용자가 생성한 모든 학습 자료 목록을 반환합니다.
+    """
+    materials = crud.get_materials_by_user(db, user_id=current_user.id, skip=skip, limit=limit)
+    return materials
+
 @app.post("/api/generate-materials-from-file", response_model=schemas.LearningMaterial)
-async def generate_materials_from_file(file: UploadFile = File(...), current_user: schemas.User = Depends(auth.get_current_user)):
+async def generate_materials_from_file(file: UploadFile = File(...), db: Session = Depends(get_db), current_user: schemas.User = Depends(auth.get_current_user)):
     """
     업로드된 파일(.txt, .pdf, .docx)에서 텍스트를 추출하고 통합 학습 자료를 생성합니다. (로그인 필요)
     """
@@ -109,24 +117,21 @@ async def generate_materials_from_file(file: UploadFile = File(...), current_use
         raise HTTPException(status_code=400, detail="Could not extract text from the file or the file is empty.")
 
     # TODO: 이 추출된 텍스트(extracted_text)를 실제 AI 호출 로직에 전달해야 합니다.
-    # 현재는 텍스트 기반 엔드포인트와 동일한 목업 데이터를 반환합니다.
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key or api_key == "YOUR_API_KEY_HERE":
-        mock_data = schemas.LearningMaterial(
+        mock_data = schemas.LearningMaterialCreate(
             summary="[파일 기반 목업 데이터] 이것은 AI가 생성한 목업 요약입니다.",
             key_topics=["파일 주제 1", "파일 주제 2"],
-            quiz=[schemas.QuizItem(question="파일 기반 질문입니다. 정답은?", options=["A", "B"], answer="A")],
-            flashcards=[schemas.FlashcardItem(term="파일 용어", definition="파일 용어에 대한 설명입니다.")]
+            quiz=[schemas.QuizItemBase(question="파일 기반 질문입니다. 정답은?", options=["A", "B"], answer="A")],
+            flashcards=[schemas.FlashcardItemBase(term="파일 용어", definition="파일 용어에 대한 설명입니다.")]
         )
-        return mock_data
+        return crud.create_learning_material(db=db, material=mock_data, user_id=current_user.id)
     
-    # 실제 AI 호출 로직 (텍스트 기반 엔드포인트의 로직 재사용 또는 별도 구현)
-    # ...
     raise HTTPException(status_code=501, detail="AI integration for file upload is not implemented yet.")
 
 
 @app.post("/api/generate-materials", response_model=schemas.LearningMaterial)
-async def generate_materials(source_text: schemas.SourceText, current_user: schemas.User = Depends(auth.get_current_user)):
+async def generate_materials(source_text: schemas.SourceText, db: Session = Depends(get_db), current_user: schemas.User = Depends(auth.get_current_user)):
     """
     입력된 텍스트를 기반으로 통합 학습 자료를 생성합니다. (로그인 필요)
     """
@@ -135,19 +140,19 @@ async def generate_materials(source_text: schemas.SourceText, current_user: sche
     # API 키가 없거나 임시 키일 경우 목업 데이터 반환
     if not api_key or api_key == "YOUR_API_KEY_HERE":
         print("Warning: GEMINI_API_KEY is not configured. Returning mock data.")
-        mock_data = schemas.LearningMaterial(
+        mock_data = schemas.LearningMaterialCreate(
             summary="[목업 데이터] 이것은 AI가 생성한 목업 요약입니다. 원본 텍스트의 핵심 내용을 담고 있습니다.",
             key_topics=["핵심 주제 1", "핵심 주제 2", "중요 컨셉 3"],
             quiz=[
-                schemas.QuizItem(question="첫 번째 질문입니다. 정답은 무엇일까요?", options=["A", "B", "C", "D"], answer="A"),
-                schemas.QuizItem(question="두 번째 질문입니다. 이 개념을 설명하세요.", options=["보기1", "보기2", "보기3", "보기4"], answer="보기2"),
+                schemas.QuizItemBase(question="첫 번째 질문입니다. 정답은 무엇일까요?", options=["A", "B", "C", "D"], answer="A"),
+                schemas.QuizItemBase(question="두 번째 질문입니다. 이 개념을 설명하세요.", options=["보기1", "보기2", "보기3", "보기4"], answer="보기2"),
             ],
             flashcards=[
-                schemas.FlashcardItem(term="용어 1", definition="용어 1에 대한 설명입니다."),
-                schemas.FlashcardItem(term="용어 2", definition="용어 2에 대한 상세한 설명입니다."),
+                schemas.FlashcardItemBase(term="용어 1", definition="용어 1에 대한 설명입니다."),
+                schemas.FlashcardItemBase(term="용어 2", definition="용어 2에 대한 상세한 설명입니다."),
             ]
         )
-        return mock_data
+        return crud.create_learning_material(db=db, material=mock_data, user_id=current_user.id)
 
     try:
         genai.configure(api_key=api_key)
@@ -200,7 +205,11 @@ async def generate_materials(source_text: schemas.SourceText, current_user: sche
         # JSON 파싱
         response_json = json.loads(cleaned_response_text)
         
-        return schemas.LearningMaterial(**response_json)
+        # 스키마를 사용하여 데이터 유효성 검사 및 변환
+        validated_material = schemas.LearningMaterialCreate(**response_json)
+        
+        # 데이터베이스에 저장
+        return crud.create_learning_material(db=db, material=validated_material, user_id=current_user.id)
 
     except Exception as e:
         print(f"An error occurred: {e}")
