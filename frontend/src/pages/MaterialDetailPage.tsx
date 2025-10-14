@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import LearningMaterialDisplay from '../components/LearningMaterialDisplay';
+import ErrorMessage from '../components/ErrorMessage';
+import LoadingSpinner from '../components/LoadingSpinner';
 import '../App.css';
 
 // API 응답에 대한 타입 정의 (기존 페이지들과 공유 가능)
@@ -92,8 +94,8 @@ function MaterialDetailPage() {
 
   return (
     <header className="App-header">
-      {isLoading && <p>로딩 중...</p>}
-      {error && <p className="error-message">{error}</p>}
+      {isLoading && <LoadingSpinner />}
+      {error && <ErrorMessage message={error} />}
       {material && (
           <div style={{ width: '80%', maxWidth: '1000px' }}>
               <LearningMaterialDisplay materials={transformMaterialData(material)} />
