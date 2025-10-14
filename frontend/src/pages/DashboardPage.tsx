@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import ErrorMessage from '../components/ErrorMessage';
+import LoadingSpinner from '../components/LoadingSpinner';
 import '../App.css';
 
 interface LearningMaterial {
@@ -58,8 +60,8 @@ function DashboardPage() {
   return (
     <header className="App-header">
       <h1>내 학습 자료</h1>
-      {isLoading && <p>로딩 중...</p>}
-      {error && <p className="error-message">{error}</p>}
+      {isLoading && <LoadingSpinner />}
+      {error && <ErrorMessage message={error} />}
       <div style={{ width: '80%', maxWidth: '1000px' }}>
         {materials.length > 0 ? (
           materials.map(material => (

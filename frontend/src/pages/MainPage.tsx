@@ -2,6 +2,8 @@ import React, { useState, useRef } from 'react';
 import '../App.css';
 import { useAuthStore } from '../store/authStore';
 import LearningMaterialDisplay from '../components/LearningMaterialDisplay';
+import ErrorMessage from '../components/ErrorMessage';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 // API 응답에 대한 타입 정의
 interface QuizItem {
@@ -159,10 +161,10 @@ function MainPage() {
         )}
       </div>
       
-      {error && <p className="error-message">{error}</p>}
+      {isLoading && <LoadingSpinner />}
+      {error && <ErrorMessage message={error} />}
 
-      {materials && <LearningMaterialDisplay materials={materials} />}
-    </header>
+      {!isLoading && materials && <LearningMaterialDisplay materials={materials} />}    </header>
   );
 }
 
