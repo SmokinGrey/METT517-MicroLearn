@@ -48,7 +48,7 @@ function MainPage() {
     setMaterials(null);
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/generate-materials', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/generate-materials`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -99,7 +99,7 @@ function MainPage() {
     formData.append('file', selectedFile);
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/generate-materials-from-file', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/generate-materials-from-file`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

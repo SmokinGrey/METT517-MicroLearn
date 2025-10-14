@@ -30,6 +30,10 @@ def create_user(db: Session, user: schemas.UserCreate):
 def get_materials_by_user(db: Session, user_id: int, skip: int = 0, limit: int = 100):
     return db.query(models.LearningMaterial).filter(models.LearningMaterial.owner_id == user_id).offset(skip).limit(limit).all()
 
+def get_material(db: Session, material_id: int, user_id: int):
+    return db.query(models.LearningMaterial).filter(models.LearningMaterial.id == material_id, models.LearningMaterial.owner_id == user_id).first()
+
+
 def create_learning_material(db: Session, material: schemas.LearningMaterialCreate, user_id: int):
     # Create the main material entry
     db_material = models.LearningMaterial(summary=material.summary, owner_id=user_id)

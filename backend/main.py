@@ -3,6 +3,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from datetime import timedelta
 import os
 import json
+from typing import List
 from dotenv import load_dotenv
 import google.generativeai as genai
 
@@ -82,59 +83,19 @@ def read_my_materials(skip: int = 0, limit: int = 100, db: Session = Depends(get
     materials = crud.get_materials_by_user(db, user_id=current_user.id, skip=skip, limit=limit)
     return materials
 
-@app.post("/api/generate-materials-from-file", response_model=schemas.LearningMaterial)
-async def generate_materials_from_file(file: UploadFile = File(...), db: Session = Depends(get_db), current_user: schemas.User = Depends(auth.get_current_user)):
+@app.get("/api/materials/{material_id}", response_model=schemas.LearningMaterial)
+def read_material(material_id: int, db: Session = Depends(get_db), current_user: schemas.User = Depends(auth.get_current_user)):
     """
-    업로드된 파일(.txt, .pdf, .docx)에서 텍스트를 추출하고 통합 학습 자료를 생성합니다. (로그인 필요)
+    현재 로그인된 사용자가 소유한 특정 학습 자료를 ID로 조회합니다.
     """
-    filename = file.filename
-    if not (filename.endswith(".txt") or filename.endswith(".pdf") or filename.endswith(".docx")):
-        raise HTTPException(status_code=400, detail="Unsupported file type. Please upload .txt, .pdf, or .docx files.")
-
-    extracted_text = ""
-    try:
-        contents = await file.read()
-        
-        if filename.endswith(".txt"):
-            extracted_text = contents.decode("utf-8")
-        
-        elif filename.endswith(".pdf"):
-            with io.BytesIO(contents) as f:
-                reader = PdfReader(f)
-                for page in reader.pages:
-                    extracted_text += page.extract_text() or ""
-        
-        elif filename.endswith(".docx"):
-            with io.BytesIO(contents) as f:
-                doc = docx.Document(f)
-                for para in doc.paragraphs:
-                    extracted_text += para.text + "\n"
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
-
-    if not extracted_text or not extracted_text.strip():
-        raise HTTPException(status_code=400, detail="Could not extract text from the file or the file is empty.")
-
-    # TODO: 이 추출된 텍스트(extracted_text)를 실제 AI 호출 로직에 전달해야 합니다.
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key or api_key == "YOUR_API_KEY_HERE":
-        mock_data = schemas.LearningMaterialCreate(
-            summary="[파일 기반 목업 데이터] 이것은 AI가 생성한 목업 요약입니다.",
-            key_topics=["파일 주제 1", "파일 주제 2"],
-            quiz=[schemas.QuizItemBase(question="파일 기반 질문입니다. 정답은?", options=["A", "B"], answer="A")],
-            flashcards=[schemas.FlashcardItemBase(term="파일 용어", definition="파일 용어에 대한 설명입니다.")]
-        )
-        return crud.create_learning_material(db=db, material=mock_data, user_id=current_user.id)
-    
-    raise HTTPException(status_code=501, detail="AI integration for file upload is not implemented yet.")
+    db_material = crud.get_material(db, material_id=material_id, user_id=current_user.id)
+    if db_material is None:
+        raise HTTPException(status_code=404, detail="Material not found or you do not have permission to view it")
+    return db_material
 
 
-@app.post("/api/generate-materials", response_model=schemas.LearningMaterial)
-async def generate_materials(source_text: schemas.SourceText, db: Session = Depends(get_db), current_user: schemas.User = Depends(auth.get_current_user)):
-    """
-    입력된 텍스트를 기반으로 통합 학습 자료를 생성합니다. (로그인 필요)
-    """
+async def _generate_ai_materials(text: str, db: Session, user_id: int):
+    """Helper function to generate learning materials using AI, with mock data fallback."""
     api_key = os.getenv("GEMINI_API_KEY")
 
     # API 키가 없거나 임시 키일 경우 목업 데이터 반환
@@ -152,7 +113,7 @@ async def generate_materials(source_text: schemas.SourceText, db: Session = Depe
                 schemas.FlashcardItemBase(term="용어 2", definition="용어 2에 대한 상세한 설명입니다."),
             ]
         )
-        return crud.create_learning_material(db=db, material=mock_data, user_id=current_user.id)
+        return crud.create_learning_material(db=db, material=mock_data, user_id=user_id)
 
     try:
         genai.configure(api_key=api_key)
@@ -166,7 +127,7 @@ async def generate_materials(source_text: schemas.SourceText, db: Session = Depe
 - flashcards: 텍스트에 등장하는 중요 용어와 그 설명을 담은 용어 카드 2개.
 
 **분석할 텍스트:**
-{source_text.text}
+{text}
 
 **JSON 출력 형식:**
 {{
@@ -209,11 +170,55 @@ async def generate_materials(source_text: schemas.SourceText, db: Session = Depe
         validated_material = schemas.LearningMaterialCreate(**response_json)
         
         # 데이터베이스에 저장
-        return crud.create_learning_material(db=db, material=validated_material, user_id=current_user.id)
+        return crud.create_learning_material(db=db, material=validated_material, user_id=user_id)
 
     except Exception as e:
         print(f"An error occurred: {e}")
         raise HTTPException(status_code=500, detail="AI 자료 생성 중 오류가 발생했습니다.")
+
+@app.post("/api/generate-materials-from-file", response_model=schemas.LearningMaterial)
+async def generate_materials_from_file(file: UploadFile = File(...), db: Session = Depends(get_db), current_user: schemas.User = Depends(auth.get_current_user)):
+    """
+    업로드된 파일(.txt, .pdf, .docx)에서 텍스트를 추출하고 통합 학습 자료를 생성합니다. (로그인 필요)
+    """
+    filename = file.filename
+    if not (filename.endswith(".txt") or filename.endswith(".pdf") or filename.endswith(".docx")):
+        raise HTTPException(status_code=400, detail="Unsupported file type. Please upload .txt, .pdf, or .docx files.")
+
+    extracted_text = ""
+    try:
+        contents = await file.read()
+        
+        if filename.endswith(".txt"):
+            extracted_text = contents.decode("utf-8")
+        
+        elif filename.endswith(".pdf"):
+            with io.BytesIO(contents) as f:
+                reader = PdfReader(f)
+                for page in reader.pages:
+                    extracted_text += page.extract_text() or ""
+        
+        elif filename.endswith(".docx"):
+            with io.BytesIO(contents) as f:
+                doc = docx.Document(f)
+                for para in doc.paragraphs:
+                    extracted_text += para.text + "\n"
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
+
+    if not extracted_text or not extracted_text.strip():
+        raise HTTPException(status_code=400, detail="Could not extract text from the file or the file is empty.")
+
+    return await _generate_ai_materials(text=extracted_text, db=db, user_id=current_user.id)
+
+
+@app.post("/api/generate-materials", response_model=schemas.LearningMaterial)
+async def generate_materials(source_text: schemas.SourceText, db: Session = Depends(get_db), current_user: schemas.User = Depends(auth.get_current_user)):
+    """
+    입력된 텍스트를 기반으로 통합 학습 자료를 생성합니다. (로그인 필요)
+    """
+    return await _generate_ai_materials(text=source_text.text, db=db, user_id=current_user.id)
 
 
 @app.get("/users/", response_model=list[schemas.User])

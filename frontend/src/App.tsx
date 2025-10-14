@@ -5,6 +5,7 @@ import MainPage from './pages/MainPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage'; // 대시보드 페이지 임포트
+import MaterialDetailPage from './pages/MaterialDetailPage'; // 상세 페이지 임포트
 import { useAuthStore } from './store/authStore';
 
 function App() {
@@ -35,6 +36,7 @@ function App() {
       <Routes>
           <Route path="/" element={<MainPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/materials/:material_id" element={<MaterialDetailPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
       </Routes>

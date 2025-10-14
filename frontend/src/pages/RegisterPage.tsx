@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 function RegisterPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
+  const navigate = useNavigate();
 
   const handleRegister = async () => {
     setMessage('');
@@ -22,9 +24,13 @@ function RegisterPage() {
         throw new Error(data.detail || '회원가입에 실패했습니다.');
       }
 
-      setMessage(`회원가입 성공! ${data.username}님, 이제 로그인 페이지로 이동하여 로그인해주세요.`);
+      setMessage(`회원가입 성공! ${data.username}님, 잠시 후 로그인 페이지로 이동합니다.`);
       setUsername('');
       setPassword('');
+
+      setTimeout(() => {
+        navigate('/login');
+      }, 2000); // 2초 후 로그인 페이지로 이동
 
     } catch (error: any) {
       setMessage(error.message);

@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import '../App.css';
 
-// 임시 타입 정의
 interface LearningMaterial {
   id: number;
   summary: string;
-  // TODO: 다른 필드들도 필요에 따라 추가
+  owner_id: number;
+  key_topics: any[];
+  quiz_items: any[];
+  flashcards: any[];
 }
 
 function DashboardPage() {
@@ -26,7 +29,7 @@ function DashboardPage() {
       setError('');
 
       try {
-        const response = await fetch('http://127.0.0.1:8000/api/my-materials', {
+        const response = await fetch(`${process.env.REACT_APP_API_URL}/api/my-materials`, {
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -60,10 +63,11 @@ function DashboardPage() {
       <div style={{ width: '80%', maxWidth: '1000px' }}>
         {materials.length > 0 ? (
           materials.map(material => (
-            <div key={material.id} className="summary-result" style={{ textAlign: 'left', marginBottom: '1rem' }}>
-              <p>{material.summary.substring(0, 150)}...</p>
-              {/* TODO: 상세 보기 페이지로 이동하는 링크 추가 */}
-            </div>
+            <Link to={`/materials/${material.id}`} key={material.id} className="summary-result-link">
+              <div className="summary-result" style={{ textAlign: 'left', marginBottom: '1rem' }}>
+                <p>{material.summary.substring(0, 200)}...</p>
+              </div>
+            </Link>
           ))
         ) : (
           !isLoading && <p>아직 생성된 학습 자료가 없습니다.</p>
