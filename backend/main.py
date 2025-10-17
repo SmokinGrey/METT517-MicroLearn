@@ -16,7 +16,7 @@ import io
 import docx
 from pypdf2 import PdfReader
 
-from . import auth, crud, models, schemas
+from . import auth, crud, models, schemas, rag_handler
 from .database import SessionLocal, engine
 
 load_dotenv() # .env 파일에서 환경 변수 로드
@@ -94,6 +94,37 @@ def read_material(material_id: int, db: Session = Depends(get_db), current_user:
     return db_material
 
 
+# --- RAG Chat Endpoint ---
+
+class ChatQuery(BaseModel):
+    question: str
+
+class ChatResponse(BaseModel):
+    answer: str
+
+@app.post("/api/materials/{material_id}/chat", response_model=ChatResponse)
+async def chat_with_material(
+    material_id: int,
+    query: ChatQuery,
+    db: Session = Depends(get_db),
+    current_user: schemas.User = Depends(auth.get_current_user)
+):
+    """
+    특정 학습 자료에 대한 채팅 질문을 처리합니다.
+    """
+    # 1. 사용자가 이 자료에 접근할 권한이 있는지 확인합니다.
+    db_material = crud.get_material(db, material_id=material_id, user_id=current_user.id)
+    if db_material is None:
+        raise HTTPException(status_code=404, detail="자료를 찾을 수 없거나 접근 권한이 없습니다.")
+
+    # 2. RAG 핸들러를 사용하여 답변을 생성합니다.
+    answer = rag_handler.generate_rag_response(material_id=material_id, question=query.question)
+    
+    return ChatResponse(answer=answer)
+
+
+
+
 async def _generate_ai_materials(text: str, db: Session, user_id: int):
     """Helper function to generate learning materials using AI, with mock data fallback."""
     api_key = os.getenv("GEMINI_API_KEY")
@@ -113,7 +144,13 @@ async def _generate_ai_materials(text: str, db: Session, user_id: int):
                 schemas.FlashcardItemBase(term="용어 2", definition="용어 2에 대한 상세한 설명입니다."),
             ]
         )
-        return crud.create_learning_material(db=db, material=mock_data, user_id=user_id)
+        db_material = crud.create_learning_material(db=db, material=mock_data, user_id=user_id)
+        if db_material:
+            # RAG 처리를 위해 문서의 벡터화 및 저장을 수행합니다.
+            # 참고: 이 작업은 시간이 걸릴 수 있으므로, 실제 프로덕션 환경에서는
+            # 백그라운드 작업(예: Celery)으로 처리하는 것이 좋습니다.
+            rag_handler.process_and_store_document(material_id=db_material.id, document_text=text)
+        return db_material
 
     try:
         genai.configure(api_key=api_key)
@@ -170,7 +207,15 @@ async def _generate_ai_materials(text: str, db: Session, user_id: int):
         validated_material = schemas.LearningMaterialCreate(**response_json)
         
         # 데이터베이스에 저장
-        return crud.create_learning_material(db=db, material=validated_material, user_id=user_id)
+        db_material = crud.create_learning_material(db=db, material=validated_material, user_id=user_id)
+
+        if db_material:
+            # RAG 처리를 위해 문서의 벡터화 및 저장을 수행합니다.
+            # 참고: 이 작업은 시간이 걸릴 수 있으므로, 실제 프로덕션 환경에서는
+            # 백그라운드 작업(예: Celery)으로 처리하는 것이 좋습니다.
+            rag_handler.process_and_store_document(material_id=db_material.id, document_text=text)
+
+        return db_material
 
     except Exception as e:
         print(f"An error occurred: {e}")

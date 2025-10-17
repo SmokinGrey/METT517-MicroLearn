@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import LearningMaterialDisplay from '../components/LearningMaterialDisplay';
+import ChatInterface from '../components/ChatInterface'; // 채팅 컴포넌트 임포트
 import ErrorMessage from '../components/ErrorMessage';
 import LoadingSpinner from '../components/LoadingSpinner';
 import '../App.css';
@@ -99,6 +100,7 @@ function MaterialDetailPage() {
       {material && (
           <div style={{ width: '80%', maxWidth: '1000px' }}>
               <LearningMaterialDisplay materials={transformMaterialData(material)} />
+              <ChatInterface materialId={material.id} />
           </div>
       )}
     </header>
