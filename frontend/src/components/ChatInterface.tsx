@@ -97,7 +97,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ materialId }) => {
     if (!input.trim() || isLoading) return;
 
     const userMessage: Message = { sender: 'user', text: input };
-    setMessages((prev) => [...prev, userMessage]);
+    // 스트리밍 응답을 표시할 AI 메시지 placeholder를 미리 추가
+    setMessages((prev) => [...prev, userMessage, { sender: 'ai', text: '' }]);
+    
     const currentInput = input;
     setInput('');
     setIsLoading(true);
@@ -118,15 +120,36 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ materialId }) => {
         throw new Error(errorData.detail || '답변을 가져오는 중 오류가 발생했습니다.');
       }
 
-      const data = await response.json();
-      const aiMessage: Message = { sender: 'ai', text: data.answer };
-      setMessages((prev) => [...prev, aiMessage]);
+      if (!response.body) {
+        throw new Error("스트리밍 응답을 받지 못했습니다.");
+      }
+
+      // 스트림 처리
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+
+      while (!done) {
+        const { value, done: readerDone } = await reader.read();
+        done = readerDone;
+        const chunk = decoder.decode(value, { stream: !done });
+        
+        // 마지막 AI 메시지(placeholder)의 내용을 실시간으로 업데이트
+        setMessages((prevMessages) => {
+          const lastMessage = prevMessages[prevMessages.length - 1];
+          const updatedLastMessage = {
+            ...lastMessage,
+            text: lastMessage.text + chunk,
+          };
+          return [...prevMessages.slice(0, -1), updatedLastMessage];
+        });
+      }
 
     } catch (err: any) {
       setError(err.message);
-      // 에러 발생 시 사용자 메시지 다시 입력창에 넣어주기
+      // 에러 발생 시 사용자 메시지와 AI placeholder 롤백
+      setMessages(prev => prev.slice(0, -2)); 
       setInput(currentInput);
-      setMessages(prev => prev.slice(0, -1)); // 낙관적 업데이트 롤백
     } finally {
       setIsLoading(false);
     }

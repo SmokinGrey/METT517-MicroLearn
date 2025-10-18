@@ -1,4 +1,5 @@
 from fastapi import Depends, FastAPI, HTTPException, File, UploadFile, status
+from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from datetime import timedelta
 import os
@@ -102,7 +103,7 @@ class ChatQuery(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
 
-@app.post("/api/materials/{material_id}/chat", response_model=ChatResponse)
+@app.post("/api/materials/{material_id}/chat")
 async def chat_with_material(
     material_id: int,
     query: ChatQuery,
@@ -110,17 +111,18 @@ async def chat_with_material(
     current_user: schemas.User = Depends(auth.get_current_user)
 ):
     """
-    특정 학습 자료에 대한 채팅 질문을 처리합니다.
+    특정 학습 자료에 대한 채팅 질문을 스트리밍으로 처리합니다.
     """
     # 1. 사용자가 이 자료에 접근할 권한이 있는지 확인합니다.
     db_material = crud.get_material(db, material_id=material_id, user_id=current_user.id)
     if db_material is None:
         raise HTTPException(status_code=404, detail="자료를 찾을 수 없거나 접근 권한이 없습니다.")
 
-    # 2. RAG 핸들러를 사용하여 답변을 생성합니다.
-    answer = rag_handler.generate_rag_response(material_id=material_id, question=query.question)
-    
-    return ChatResponse(answer=answer)
+    # 2. RAG 핸들러의 스트리밍 함수를 호출하여 StreamingResponse로 반환합니다.
+    return StreamingResponse(
+        rag_handler.stream_rag_response(material_id=material_id, question=query.question),
+        media_type="text/event-stream"
+    )
 
 
 
