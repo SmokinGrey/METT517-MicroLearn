@@ -16,6 +16,9 @@ import io
 # PDF 및 DOCX 처리를 위한 라이브러리 임포트
 import docx
 from pypdf2 import PdfReader
+import trafilatura
+from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound
+import re
 
 from . import auth, crud, models, schemas, rag_handler
 from .database import SessionLocal, engine
@@ -266,6 +269,68 @@ async def generate_materials(source_text: schemas.SourceText, db: Session = Depe
     입력된 텍스트를 기반으로 통합 학습 자료를 생성합니다. (로그인 필요)
     """
     return await _generate_ai_materials(text=source_text.text, db=db, user_id=current_user.id)
+
+
+# --- New Endpoints for URL & YouTube ---
+
+class UrlSource(BaseModel):
+    url: str
+
+def get_youtube_video_id(url: str):
+    """Helper function to extract video ID from various YouTube URL formats."""
+    regex = r"(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})"
+    match = re.search(regex, url)
+    return match.group(1) if match else None
+
+@app.post("/api/generate-materials-from-url", response_model=schemas.LearningMaterial)
+async def generate_materials_from_url(source: UrlSource, db: Session = Depends(get_db), current_user: schemas.User = Depends(auth.get_current_user)):
+    """
+    입력된 URL의 웹 페이지를 분석하여 통합 학습 자료를 생성합니다.
+    """
+    try:
+        # 1. trafilatura로 URL에서 본문 텍스트 다운로드 및 추출
+        downloaded = trafilatura.fetch_url(source.url)
+        if downloaded is None:
+            raise HTTPException(status_code=400, detail="URL에서 콘텐츠를 가져올 수 없습니다. 주소를 다시 확인해주세요.")
+        
+        extracted_text = trafilatura.extract(downloaded)
+        if not extracted_text or not extracted_text.strip():
+            raise HTTPException(status_code=400, detail="URL에서 유의미한 텍스트를 추출할 수 없습니다.")
+
+        # 2. 기존의 AI 자료 생성 함수 호출
+        return await _generate_ai_materials(text=extracted_text, db=db, user_id=current_user.id)
+
+    except Exception as e:
+        # 네트워크 오류 또는 라이브러리 내부 오류 처리
+        raise HTTPException(status_code=500, detail=f"URL 처리 중 오류 발생: {str(e)}")
+
+@app.post("/api/generate-materials-from-youtube", response_model=schemas.LearningMaterial)
+async def generate_materials_from_youtube(source: UrlSource, db: Session = Depends(get_db), current_user: schemas.User = Depends(auth.get_current_user)):
+    """
+    입력된 YouTube URL의 자막을 분석하여 통합 학습 자료를 생성합니다.
+    """
+    try:
+        video_id = get_youtube_video_id(source.url)
+        if not video_id:
+            raise HTTPException(status_code=400, detail="유효하지 않은 YouTube URL입니다.")
+
+        # 1. youtube-transcript-api로 자막(transcript) 추출 (한국어, 영어 순으로 시도)
+        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['ko', 'en'])
+        
+        # 2. 자막 텍스트들을 하나의 문자열로 결합
+        extracted_text = " ".join([item['text'] for item in transcript_list])
+        
+        if not extracted_text or not extracted_text.strip():
+            raise HTTPException(status_code=400, detail="YouTube 영상에서 자막을 추출할 수 없습니다.")
+
+        # 3. 기존의 AI 자료 생성 함수 호출
+        return await _generate_ai_materials(text=extracted_text, db=db, user_id=current_user.id)
+    
+    except NoTranscriptFound:
+        raise HTTPException(status_code=404, detail="해당 영상에 분석 가능한 한국어 또는 영어 자막이 존재하지 않습니다.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"YouTube 처리 중 오류 발생: {str(e)}")
+
 
 
 @app.get("/users/", response_model=list[schemas.User])

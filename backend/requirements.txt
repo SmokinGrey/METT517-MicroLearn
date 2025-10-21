@@ -53,3 +53,5 @@ langchain
 langchain-google-genai
 chromadb
 tiktoken
+trafilatura
+youtube-transcript-api
