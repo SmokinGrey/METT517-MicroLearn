@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Any
 
 
 # --- MicroLearn Core Models ---
@@ -19,6 +19,7 @@ class LearningMaterialCreate(BaseModel):
     key_topics: List[str]
     quiz: List[QuizItemBase]
     flashcards: List[FlashcardItemBase]
+    mindmap: Optional[Any] = None
 
 class SourceText(BaseModel):
     text: str
@@ -50,6 +51,7 @@ class LearningMaterial(BaseModel):
     key_topics: List[KeyTopic] = []
     quiz_items: List[QuizItem] = []
     flashcards: List[FlashcardItem] = []
+    mindmap: Optional[Any] = None
     class Config:
         orm_mode = True
 

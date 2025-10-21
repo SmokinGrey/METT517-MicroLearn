@@ -147,7 +147,14 @@ async def _generate_ai_materials(text: str, db: Session, user_id: int):
             flashcards=[
                 schemas.FlashcardItemBase(term="용어 1", definition="용어 1에 대한 설명입니다."),
                 schemas.FlashcardItemBase(term="용어 2", definition="용어 2에 대한 상세한 설명입니다."),
-            ]
+            ],
+            mindmap={
+                "name": "[목업] 중심 주제",
+                "children": [
+                    {"name": "하위 주제 1", "children": [{"name": "세부 사항 1-1"}, {"name": "세부 사항 1-2"}]},
+                    {"name": "하위 주제 2"},
+                ]
+            }
         )
         db_material = crud.create_learning_material(db=db, material=mock_data, user_id=user_id)
         if db_material:
@@ -167,6 +174,7 @@ async def _generate_ai_materials(text: str, db: Session, user_id: int):
 - key_topics: 텍스트의 핵심 주제나 키워드를 담은 문자열 배열.
 - quiz: 텍스트의 내용을 바탕으로 한 객관식 퀴즈 2개. options는 4개의 선택지를 포함해야 하고, answer는 그 중 정답 텍스트여야 해.
 - flashcards: 텍스트에 등장하는 중요 용어와 그 설명을 담은 용어 카드 2개.
+- mindmap: 텍스트의 핵심 개념들을 계층적으로 구조화한 마인드맵 데이터. 'name'과 'children' 키를 사용하는 중첩된(nested) JSON 객체 형식이어야 해. 최상위 객체는 하나여야 해.
 
 **분석할 텍스트:**
 {text}
@@ -196,7 +204,20 @@ async def _generate_ai_materials(text: str, db: Session, user_id: int):
       "term": "<용어2>",
       "definition": "<설명2>"
     }}
-  ]
+  ],
+  "mindmap": {{
+    "name": "<중심 주제>",
+    "children": [
+      {{
+        "name": "<하위 주제 1>",
+        "children": [
+          {{ "name": "<세부 주제 1-1>" }},
+          {{ "name": "<세부 주제 1-2>" }}
+        ]
+      }},
+      {{ "name": "<하위 주제 2>" }}
+    ]
+  }}
 }}
 """
 
@@ -207,6 +228,14 @@ async def _generate_ai_materials(text: str, db: Session, user_id: int):
         
         # JSON 파싱
         response_json = json.loads(cleaned_response_text)
+
+        # AI가 가끔 mindmap을 문자열로 반환하는 경우에 대한 안전장치
+        if isinstance(response_json.get("mindmap"), str):
+            try:
+                response_json["mindmap"] = json.loads(response_json["mindmap"])
+            except json.JSONDecodeError:
+                print("Warning: Could not parse mindmap string into JSON.")
+                response_json["mindmap"] = None
         
         # 스키마를 사용하여 데이터 유효성 검사 및 변환
         validated_material = schemas.LearningMaterialCreate(**response_json)

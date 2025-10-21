@@ -36,7 +36,11 @@ def get_material(db: Session, material_id: int, user_id: int):
 
 def create_learning_material(db: Session, material: schemas.LearningMaterialCreate, user_id: int):
     # Create the main material entry
-    db_material = models.LearningMaterial(summary=material.summary, owner_id=user_id)
+    db_material = models.LearningMaterial(
+        summary=material.summary, 
+        owner_id=user_id,
+        mindmap=material.mindmap # 마인드맵 데이터 추가
+    )
     db.add(db_material)
     db.commit()
     db.refresh(db_material)
