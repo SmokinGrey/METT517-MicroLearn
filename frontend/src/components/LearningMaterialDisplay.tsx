@@ -1,11 +1,12 @@
 import React from 'react';
 import InteractiveQuiz from './InteractiveQuiz';
 import FlippableFlashcard from './FlippableFlashcard';
+import MindMapDisplay from './MindMapDisplay';
 
 // 데이터 타입 정의
 interface QuizItem { question: string; options: string[]; answer: string; }
 interface FlashcardItem { term: string; definition: string; }
-interface LearningMaterial { summary: string; key_topics: string[]; quiz: QuizItem[]; flashcards: FlashcardItem[]; }
+interface LearningMaterial { summary: string; key_topics: string[]; quiz: QuizItem[]; flashcards: FlashcardItem[]; mindmap?: any; }
 interface Props { materials: LearningMaterial; }
 
 // 스타일 객체
@@ -90,6 +91,16 @@ const LearningMaterialDisplay: React.FC<Props> = ({ materials }) => {
           ))}
         </div>
       </section>
+
+      {materials.mindmap && (
+        <>
+          <hr style={styles.divider} />
+          <section style={styles.section}>
+            <h2 style={styles.sectionTitle}>콘텐츠 마인드맵</h2>
+            <MindMapDisplay mindmapData={materials.mindmap} />
+          </section>
+        </>
+      )}
     </div>
   );
 };
