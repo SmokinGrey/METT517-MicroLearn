@@ -20,6 +20,7 @@ class LearningMaterial(Base):
     id = Column(Integer, primary_key=True, index=True)
     summary = Column(Text, nullable=False)
     mindmap = Column(JSON, nullable=True)
+    audio_url = Column(String, nullable=True)
     owner_id = Column(Integer, ForeignKey("users.id"))
 
     owner = relationship("User", back_populates="materials")

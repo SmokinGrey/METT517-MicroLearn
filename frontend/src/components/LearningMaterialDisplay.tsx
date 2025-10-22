@@ -6,7 +6,7 @@ import MindMapDisplay from './MindMapDisplay';
 // 데이터 타입 정의
 interface QuizItem { question: string; options: string[]; answer: string; }
 interface FlashcardItem { term: string; definition: string; }
-interface LearningMaterial { summary: string; key_topics: string[]; quiz: QuizItem[]; flashcards: FlashcardItem[]; mindmap?: any; }
+interface LearningMaterial { summary: string; key_topics: string[]; quiz: QuizItem[]; flashcards: FlashcardItem[]; mindmap?: any; audio_url?: string; }
 interface Props { materials: LearningMaterial; }
 
 // 스타일 객체
@@ -60,6 +60,13 @@ const LearningMaterialDisplay: React.FC<Props> = ({ materials }) => {
       
       <section style={styles.section}>
         <h2 style={styles.sectionTitle}>핵심 요약</h2>
+        {materials.audio_url && (
+          <div style={{marginBottom: '1.5rem'}}>
+            <audio controls style={{width: '100%'}} src={materials.audio_url}>
+              Your browser does not support the audio element.
+            </audio>
+          </div>
+        )}
         <p style={styles.bodyText}>{materials.summary}</p>
       </section>
 

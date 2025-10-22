@@ -20,6 +20,7 @@ class LearningMaterialCreate(BaseModel):
     quiz: List[QuizItemBase]
     flashcards: List[FlashcardItemBase]
     mindmap: Optional[Any] = None
+    audio_url: Optional[str] = None
 
 class SourceText(BaseModel):
     text: str
@@ -52,6 +53,7 @@ class LearningMaterial(BaseModel):
     quiz_items: List[QuizItem] = []
     flashcards: List[FlashcardItem] = []
     mindmap: Optional[Any] = None
+    audio_url: Optional[str] = None
     class Config:
         orm_mode = True
 

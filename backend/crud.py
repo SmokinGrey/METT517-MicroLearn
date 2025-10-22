@@ -39,7 +39,8 @@ def create_learning_material(db: Session, material: schemas.LearningMaterialCrea
     db_material = models.LearningMaterial(
         summary=material.summary, 
         owner_id=user_id,
-        mindmap=material.mindmap # 마인드맵 데이터 추가
+        mindmap=material.mindmap, # 마인드맵 데이터 추가
+        audio_url=material.audio_url # 오디오 URL 데이터 추가
     )
     db.add(db_material)
     db.commit()

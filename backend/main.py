@@ -154,7 +154,8 @@ async def _generate_ai_materials(text: str, db: Session, user_id: int):
                     {"name": "하위 주제 1", "children": [{"name": "세부 사항 1-1"}, {"name": "세부 사항 1-2"}]},
                     {"name": "하위 주제 2"},
                 ]
-            }
+            },
+            audio_url=None # 오디오 URL 임시로 None 처리
         )
         db_material = crud.create_learning_material(db=db, material=mock_data, user_id=user_id)
         if db_material:
