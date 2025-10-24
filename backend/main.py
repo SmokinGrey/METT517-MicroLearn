@@ -1,10 +1,10 @@
-from fastapi import Depends, FastAPI, HTTPException, File, UploadFile, status
+from fastapi import Depends, FastAPI, HTTPException, File, UploadFile, status, Form
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from datetime import timedelta
 import os
 import json
-from typing import List
+from typing import List, Optional
 from dotenv import load_dotenv
 import google.generativeai as genai
 
@@ -15,7 +15,7 @@ import io
 
 # PDF 및 DOCX 처리를 위한 라이브러리 임포트
 import docx
-from pypdf2 import PdfReader
+from pypdf import PdfReader # pypdf2 is deprecated, use pypdf
 import trafilatura
 from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound
 import re
@@ -56,7 +56,7 @@ def get_db():
     finally:
         db.close()
 
-# --- API 엔드포인트 ---
+# --- Auth Endpoints ---
 
 @app.post("/token", response_model=schemas.Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
@@ -64,7 +64,7 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     if not user or not auth.verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
+            detail="사용자 이름 또는 비밀번호가 잘못되었습니다.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -78,98 +78,164 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     db_user = crud.get_user_by_username(db, username=user.username)
     if db_user:
-        raise HTTPException(status_code=400, detail="Username already registered")
+        raise HTTPException(status_code=400, detail="이미 등록된 사용자 이름입니다.")
     return crud.create_user(db=db, user=user)
 
 @app.get("/users/me", response_model=schemas.User)
 async def read_users_me(current_user: schemas.User = Depends(auth.get_current_user)):
     return current_user
 
-@app.get("/api/my-materials", response_model=List[schemas.LearningMaterial])
-def read_my_materials(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: schemas.User = Depends(auth.get_current_user)):
-    """
-    현재 로그인된 사용자가 생성한 모든 학습 자료 목록을 반환합니다.
-    """
-    materials = crud.get_materials_by_user(db, user_id=current_user.id, skip=skip, limit=limit)
-    return materials
+# --- Learning Note Endpoints (New) ---
 
-@app.get("/api/materials/{material_id}", response_model=schemas.LearningMaterial)
-def read_material(material_id: int, db: Session = Depends(get_db), current_user: schemas.User = Depends(auth.get_current_user)):
+@app.post("/api/notes", response_model=schemas.LearningNote)
+def create_learning_note(
+    note: schemas.LearningNoteCreate,
+    db: Session = Depends(get_db),
+    current_user: schemas.User = Depends(auth.get_current_user)
+):
     """
-    현재 로그인된 사용자가 소유한 특정 학습 자료를 ID로 조회합니다.
+    새로운 학습 노트를 생성합니다.
     """
-    db_material = crud.get_material(db, material_id=material_id, user_id=current_user.id)
-    if db_material is None:
-        raise HTTPException(status_code=404, detail="Material not found or you do not have permission to view it")
-    return db_material
+    return crud.create_learning_note(db=db, note=note, user_id=current_user.id)
+
+@app.get("/api/notes", response_model=List[schemas.LearningNote])
+def read_user_notes(
+    skip: int = 0, limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: schemas.User = Depends(auth.get_current_user)
+):
+    """
+    현재 사용자의 모든 학습 노트를 조회합니다.
+    """
+    notes = crud.get_notes_by_user(db, user_id=current_user.id, skip=skip, limit=limit)
+    return notes
+
+@app.get("/api/notes/{note_id}", response_model=schemas.LearningNote)
+def read_note(
+    note_id: int,
+    db: Session = Depends(get_db),
+    current_user: schemas.User = Depends(auth.get_current_user)
+):
+    """
+    특정 학습 노트를 조회합니다.
+    """
+    db_note = crud.get_note(db, note_id=note_id, user_id=current_user.id)
+    if db_note is None:
+        raise HTTPException(status_code=404, detail="노트를 찾을 수 없습니다.")
+    return db_note
+
+@app.delete("/api/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_note(
+    note_id: int,
+    db: Session = Depends(get_db),
+    current_user: schemas.User = Depends(auth.get_current_user)
+):
+    """
+    특정 학습 노트를 삭제합니다.
+    """
+    success = crud.delete_note(db, note_id=note_id, user_id=current_user.id)
+    if not success:
+        raise HTTPException(status_code=404, detail="노트를 찾을 수 없습니다.")
+    return
 
 
-# --- RAG Chat Endpoint ---
+# --- Source Endpoints (New) ---
+
+@app.post("/api/notes/{note_id}/sources", response_model=schemas.Source)
+async def add_source_to_note(
+    note_id: int,
+    file: Optional[UploadFile] = File(None),
+    url: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    current_user: schemas.User = Depends(auth.get_current_user)
+):
+    """
+    학습 노트에 새로운 소스(파일 또는 URL)를 추가합니다.
+    """
+    db_note = crud.get_note(db, note_id=note_id, user_id=current_user.id)
+    if db_note is None:
+        raise HTTPException(status_code=404, detail="노트를 찾을 수 없습니다.")
+
+    if file:
+        # 파일 처리 로직 (Phase 3에서 구체화)
+        # 우선 파일명과 타입만 저장
+        source_create = schemas.SourceCreate(type='file', path=file.filename, content="")
+        return crud.create_note_source(db=db, source=source_create, note_id=note_id)
+    elif url:
+        # URL 처리 로직 (Phase 3에서 구체화)
+        source_create = schemas.SourceCreate(type='url', path=url, content="")
+        return crud.create_note_source(db=db, source=source_create, note_id=note_id)
+    else:
+        raise HTTPException(status_code=400, detail="파일이나 URL이 제공되지 않았습니다.")
+
+
+# --- Deprecated Material Endpoints ---
+
+# @app.get("/api/my-materials", response_model=List[schemas.LearningMaterial])
+# def read_my_materials(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: schemas.User = Depends(auth.get_current_user)):
+#     materials = crud.get_materials_by_user(db, user_id=current_user.id, skip=skip, limit=limit)
+#     return materials
+
+# @app.get("/api/materials/{material_id}", response_model=schemas.LearningMaterial)
+# def read_material(material_id: int, db: Session = Depends(get_db), current_user: schemas.User = Depends(auth.get_current_user)):
+#     db_material = crud.get_material(db, material_id=material_id, user_id=current_user.id)
+#     if db_material is None:
+#         raise HTTPException(status_code=404, detail="Material not found or you do not have permission to view it")
+#     return db_material
+
+
+# --- RAG Chat Endpoint (To be refactored for notes) ---
 
 class ChatQuery(BaseModel):
     question: str
 
-class ChatResponse(BaseModel):
-    answer: str
-
-@app.post("/api/materials/{material_id}/chat")
-async def chat_with_material(
-    material_id: int,
+@app.post("/api/notes/{note_id}/chat")
+async def chat_with_note(
+    note_id: int,
     query: ChatQuery,
     db: Session = Depends(get_db),
     current_user: schemas.User = Depends(auth.get_current_user)
 ):
     """
-    특정 학습 자료에 대한 채팅 질문을 스트리밍으로 처리합니다.
+    특정 학습 노트에 대한 채팅 질문을 스트리밍으로 처리합니다.
     """
-    # 1. 사용자가 이 자료에 접근할 권한이 있는지 확인합니다.
-    db_material = crud.get_material(db, material_id=material_id, user_id=current_user.id)
-    if db_material is None:
-        raise HTTPException(status_code=404, detail="자료를 찾을 수 없거나 접근 권한이 없습니다.")
+    db_note = crud.get_note(db, note_id=note_id, user_id=current_user.id)
+    if db_note is None:
+        raise HTTPException(status_code=404, detail="노트를 찾을 수 없거나 접근 권한이 없습니다.")
 
-    # 2. RAG 핸들러의 스트리밍 함수를 호출하여 StreamingResponse로 반환합니다.
+    # RAG 핸들러는 이제 note_id를 기반으로 작동해야 합니다.
     return StreamingResponse(
-        rag_handler.stream_rag_response(material_id=material_id, question=query.question),
+        rag_handler.stream_rag_response_from_note(note_id=note_id, question=query.question),
         media_type="text/event-stream"
     )
 
 
+# --- AI Material Generation (Refactored for Notes) ---
 
-
-async def _generate_ai_materials(text: str, db: Session, user_id: int):
-    """Helper function to generate learning materials using AI, with mock data fallback."""
+async def _generate_ai_materials(text: str, db: Session, note_id: int, source_path: str):
+    """Helper function to generate learning materials and add text to the note's vector store."""
     api_key = os.getenv("GEMINI_API_KEY")
+
+    # Vectorize and store the source text for RAG
+    rag_handler.add_source_to_vector_store(note_id=note_id, source_text=text, source_path=source_path)
 
     # API 키가 없거나 임시 키일 경우 목업 데이터 반환
     if not api_key or api_key == "YOUR_API_KEY_HERE":
         print("Warning: GEMINI_API_KEY is not configured. Returning mock data.")
         mock_data = schemas.LearningMaterialCreate(
-            summary="[목업 데이터] 이것은 AI가 생성한 목업 요약입니다. 원본 텍스트의 핵심 내용을 담고 있습니다.",
-            key_topics=["핵심 주제 1", "핵심 주제 2", "중요 컨셉 3"],
-            quiz=[
-                schemas.QuizItemBase(question="첫 번째 질문입니다. 정답은 무엇일까요?", options=["A", "B", "C", "D"], answer="A"),
-                schemas.QuizItemBase(question="두 번째 질문입니다. 이 개념을 설명하세요.", options=["보기1", "보기2", "보기3", "보기4"], answer="보기2"),
-            ],
-            flashcards=[
-                schemas.FlashcardItemBase(term="용어 1", definition="용어 1에 대한 설명입니다."),
-                schemas.FlashcardItemBase(term="용어 2", definition="용어 2에 대한 상세한 설명입니다."),
-            ],
-            mindmap={
-                "name": "[목업] 중심 주제",
-                "children": [
-                    {"name": "하위 주제 1", "children": [{"name": "세부 사항 1-1"}, {"name": "세부 사항 1-2"}]},
-                    {"name": "하위 주제 2"},
-                ]
-            },
-            audio_url=None # 오디오 URL 임시로 None 처리
+            summary=f"[목업 데이터] '{source_path}'의 내용을 요약한 결과입니다.",
+            key_topics=["핵심 주제 1", "핵심 주제 2"],
+            quiz=[schemas.QuizItemBase(question="첫 번째 질문입니다.", options=["A", "B", "C", "D"], answer="A")],
+            flashcards=[schemas.FlashcardItemBase(term="용어 1", definition="설명 1")],
+            mindmap={"name": "[목업] 중심 주제", "children": [{"name": "하위 주제 1"}]},
+            audio_url=None
         )
-        db_material = crud.create_learning_material(db=db, material=mock_data, user_id=user_id)
-        if db_material:
-            # RAG 처리를 위해 문서의 벡터화 및 저장을 수행합니다.
-            # 참고: 이 작업은 시간이 걸릴 수 있으므로, 실제 프로덕션 환경에서는
-            # 백그라운드 작업(예: Celery)으로 처리하는 것이 좋습니다.
-            rag_handler.process_and_store_document(material_id=db_material.id, document_text=text)
-        return db_material
+        # For mock data, we don't create a full material, just return the structure
+        # This part of the logic might need adjustment based on desired behavior for mock generation.
+        # For now, we'll skip creating a material entry in the DB for mock data to avoid confusion.
+        # A better approach would be to create a consolidated material for the note.
+        # This is a placeholder for the real implementation of multi-source analysis.
+        return mock_data # Returning the structure, not a DB object
 
     try:
         genai.configure(api_key=api_key)
@@ -229,40 +295,26 @@ async def _generate_ai_materials(text: str, db: Session, user_id: int):
 """
 
         response = await model.generate_content_async(prompt)
-        
-        # 응답 텍스트에서 JSON 부분만 추출
         cleaned_response_text = response.text.strip().replace('```json', '').replace('```', '')
-        
-        # JSON 파싱
         response_json = json.loads(cleaned_response_text)
 
-        # AI가 가끔 mindmap을 문자열로 반환하는 경우에 대한 안전장치
         if isinstance(response_json.get("mindmap"), str):
             try:
                 response_json["mindmap"] = json.loads(response_json["mindmap"])
             except json.JSONDecodeError:
-                print("Warning: Could not parse mindmap string into JSON.")
                 response_json["mindmap"] = None
         
-        # 스키마를 사용하여 데이터 유효성 검사 및 변환
         validated_material = schemas.LearningMaterialCreate(**response_json)
 
-        # --- 🎵 오디오 브리핑 생성 ---
         audio_url = None
         if validated_material.summary:
-            print("요약 텍스트로 오디오 브리핑 생성을 시도합니다...")
             audio_url = tts_handler.create_audio_briefing(validated_material.summary)
         validated_material.audio_url = audio_url
-        # --- 🎵 오디오 브리핑 생성 완료 ---
         
-        # 데이터베이스에 저장
-        db_material = crud.create_learning_material(db=db, material=validated_material, user_id=user_id)
-
-        if db_material:
-            # RAG 처리를 위해 문서의 벡터화 및 저장을 수행합니다.
-            # 참고: 이 작업은 시간이 걸릴 수 있으므로, 실제 프로덕션 환경에서는
-            # 백그라운드 작업(예: Celery)으로 처리하는 것이 좋습니다.
-            rag_handler.process_and_store_document(material_id=db_material.id, document_text=text)
+        # This part needs to be re-evaluated. Instead of creating a new material for each source,
+        # we should have one consolidated material per note. 
+        # For now, we will continue to create one to maintain some functionality.
+        db_material = crud.create_learning_material(db=db, material=validated_material, note_id=note_id)
 
         return db_material
 
@@ -270,105 +322,119 @@ async def _generate_ai_materials(text: str, db: Session, user_id: int):
         print(f"An error occurred: {e}")
         raise HTTPException(status_code=500, detail="AI 자료 생성 중 오류가 발생했습니다.")
 
-@app.post("/api/generate-materials-from-file", response_model=schemas.LearningMaterial)
-async def generate_materials_from_file(file: UploadFile = File(...), db: Session = Depends(get_db), current_user: schemas.User = Depends(auth.get_current_user)):
-    """
-    업로드된 파일(.txt, .pdf, .docx)에서 텍스트를 추출하고 통합 학습 자료를 생성합니다. (로그인 필요)
-    """
+@app.post("/api/notes/{note_id}/generate-from-file", response_model=schemas.LearningMaterial)
+async def generate_materials_from_file(
+    note_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: schemas.User = Depends(auth.get_current_user)
+):
+    db_note = crud.get_note(db, note_id=note_id, user_id=current_user.id)
+    if db_note is None:
+        raise HTTPException(status_code=404, detail="노트를 찾을 수 없습니다.")
+
     filename = file.filename
     if not (filename.endswith(".txt") or filename.endswith(".pdf") or filename.endswith(".docx")):
-        raise HTTPException(status_code=400, detail="Unsupported file type. Please upload .txt, .pdf, or .docx files.")
+        raise HTTPException(status_code=400, detail="지원하지 않는 파일 형식입니다.")
 
     extracted_text = ""
     try:
         contents = await file.read()
-        
-        if filename.endswith(".txt"):
-            extracted_text = contents.decode("utf-8")
-        
-        elif filename.endswith(".pdf"):
+        if filename.endswith(".txt"): extracted_text = contents.decode("utf-8")
+        elif filename.endswith(".pdf"): 
             with io.BytesIO(contents) as f:
                 reader = PdfReader(f)
-                for page in reader.pages:
-                    extracted_text += page.extract_text() or ""
-        
-        elif filename.endswith(".docx"):
+                for page in reader.pages: extracted_text += page.extract_text() or ""
+        elif filename.endswith(".docx"): 
             with io.BytesIO(contents) as f:
                 doc = docx.Document(f)
-                for para in doc.paragraphs:
-                    extracted_text += para.text + "\n"
-
+                for para in doc.paragraphs: extracted_text += para.text + "\n"
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"파일 처리 실패: {str(e)}")
 
-    if not extracted_text or not extracted_text.strip():
-        raise HTTPException(status_code=400, detail="Could not extract text from the file or the file is empty.")
+    if not extracted_text.strip():
+        raise HTTPException(status_code=400, detail="파일에서 텍스트를 추출할 수 없습니다.")
 
-    return await _generate_ai_materials(text=extracted_text, db=db, user_id=current_user.id)
+    # 소스 정보도 DB에 저장
+    source_create = schemas.SourceCreate(type='file', path=filename, content=extracted_text[:500]) # 미리보기
+    crud.create_note_source(db=db, source=source_create, note_id=note_id)
+
+    return await _generate_ai_materials(text=extracted_text, db=db, note_id=note_id, source_path=filename)
+
+@app.post("/api/notes/{note_id}/generate-from-text", response_model=schemas.LearningMaterial)
+async def generate_materials_from_text(
+    note_id: int,
+    source_text: schemas.SourceText,
+    db: Session = Depends(get_db),
+    current_user: schemas.User = Depends(auth.get_current_user)
+):
+    db_note = crud.get_note(db, note_id=note_id, user_id=current_user.id)
+    if db_note is None:
+        raise HTTPException(status_code=404, detail="노트를 찾을 수 없습니다.")
+
+    # 소스 정보도 DB에 저장
+    source_create = schemas.SourceCreate(type='text', path='text_input', content=source_text.text[:500])
+    crud.create_note_source(db=db, source=source_create, note_id=note_id)
+
+    return await _generate_ai_materials(text=source_text.text, db=db, note_id=note_id, source_path='text_input')
 
 
-@app.post("/api/generate-materials", response_model=schemas.LearningMaterial)
-async def generate_materials(source_text: schemas.SourceText, db: Session = Depends(get_db), current_user: schemas.User = Depends(auth.get_current_user)):
-    """
-    입력된 텍스트를 기반으로 통합 학습 자료를 생성합니다. (로그인 필요)
-    """
-    return await _generate_ai_materials(text=source_text.text, db=db, user_id=current_user.id)
-
-
-# --- New Endpoints for URL & YouTube ---
+# --- New Endpoints for URL & YouTube (Refactored for Notes) ---
 
 class UrlSource(BaseModel):
     url: str
 
 def get_youtube_video_id(url: str):
-    """Helper function to extract video ID from various YouTube URL formats."""
     regex = r"(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})"
     match = re.search(regex, url)
     return match.group(1) if match else None
 
-@app.post("/api/generate-materials-from-url", response_model=schemas.LearningMaterial)
-async def generate_materials_from_url(source: UrlSource, db: Session = Depends(get_db), current_user: schemas.User = Depends(auth.get_current_user)):
-    """
-    입력된 URL의 웹 페이지를 분석하여 통합 학습 자료를 생성합니다.
-    """
+@app.post("/api/notes/{note_id}/generate-from-url", response_model=schemas.LearningMaterial)
+async def generate_materials_from_url(
+    note_id: int,
+    source: UrlSource,
+    db: Session = Depends(get_db),
+    current_user: schemas.User = Depends(auth.get_current_user)
+):
+    db_note = crud.get_note(db, note_id=note_id, user_id=current_user.id)
+    if db_note is None: raise HTTPException(status_code=404, detail="노트를 찾을 수 없습니다.")
+    
     try:
-        # 1. trafilatura로 URL에서 본문 텍스트 다운로드 및 추출
         downloaded = trafilatura.fetch_url(source.url)
-        if downloaded is None:
-            raise HTTPException(status_code=400, detail="URL에서 콘텐츠를 가져올 수 없습니다. 주소를 다시 확인해주세요.")
-        
+        if downloaded is None: raise HTTPException(status_code=400, detail="URL에서 콘텐츠를 가져올 수 없습니다.")
         extracted_text = trafilatura.extract(downloaded)
-        if not extracted_text or not extracted_text.strip():
-            raise HTTPException(status_code=400, detail="URL에서 유의미한 텍스트를 추출할 수 없습니다.")
+        if not extracted_text or not extracted_text.strip(): raise HTTPException(status_code=400, detail="URL에서 텍스트를 추출할 수 없습니다.")
 
-        # 2. 기존의 AI 자료 생성 함수 호출
-        return await _generate_ai_materials(text=extracted_text, db=db, user_id=current_user.id)
+        source_create = schemas.SourceCreate(type='url', path=source.url, content=extracted_text[:500])
+        crud.create_note_source(db=db, source=source_create, note_id=note_id)
+
+        return await _generate_ai_materials(text=extracted_text, db=db, note_id=note_id, source_path=source.url)
 
     except Exception as e:
-        # 네트워크 오류 또는 라이브러리 내부 오류 처리
         raise HTTPException(status_code=500, detail=f"URL 처리 중 오류 발생: {str(e)}")
 
-@app.post("/api/generate-materials-from-youtube", response_model=schemas.LearningMaterial)
-async def generate_materials_from_youtube(source: UrlSource, db: Session = Depends(get_db), current_user: schemas.User = Depends(auth.get_current_user)):
-    """
-    입력된 YouTube URL의 자막을 분석하여 통합 학습 자료를 생성합니다.
-    """
+@app.post("/api/notes/{note_id}/generate-from-youtube", response_model=schemas.LearningMaterial)
+async def generate_materials_from_youtube(
+    note_id: int,
+    source: UrlSource,
+    db: Session = Depends(get_db),
+    current_user: schemas.User = Depends(auth.get_current_user)
+):
+    db_note = crud.get_note(db, note_id=note_id, user_id=current_user.id)
+    if db_note is None: raise HTTPException(status_code=404, detail="노트를 찾을 수 없습니다.")
+
     try:
         video_id = get_youtube_video_id(source.url)
-        if not video_id:
-            raise HTTPException(status_code=400, detail="유효하지 않은 YouTube URL입니다.")
+        if not video_id: raise HTTPException(status_code=400, detail="유효하지 않은 YouTube URL입니다.")
 
-        # 1. youtube-transcript-api로 자막(transcript) 추출 (한국어, 영어 순으로 시도)
         transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['ko', 'en'])
-        
-        # 2. 자막 텍스트들을 하나의 문자열로 결합
         extracted_text = " ".join([item['text'] for item in transcript_list])
-        
-        if not extracted_text or not extracted_text.strip():
-            raise HTTPException(status_code=400, detail="YouTube 영상에서 자막을 추출할 수 없습니다.")
+        if not extracted_text.strip(): raise HTTPException(status_code=400, detail="자막을 추출할 수 없습니다.")
 
-        # 3. 기존의 AI 자료 생성 함수 호출
-        return await _generate_ai_materials(text=extracted_text, db=db, user_id=current_user.id)
+        source_create = schemas.SourceCreate(type='youtube', path=source.url, content=extracted_text[:500])
+        crud.create_note_source(db=db, source=source_create, note_id=note_id)
+
+        return await _generate_ai_materials(text=extracted_text, db=db, note_id=note_id, source_path=source.url)
     
     except NoTranscriptFound:
         raise HTTPException(status_code=404, detail="해당 영상에 분석 가능한 한국어 또는 영어 자막이 존재하지 않습니다.")
@@ -387,7 +453,7 @@ def read_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
 def read_user(user_id: int, db: Session = Depends(get_db)):
     db_user = crud.get_user(db, user_id=user_id)
     if db_user is None:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
     return db_user
 
 

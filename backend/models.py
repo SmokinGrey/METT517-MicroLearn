@@ -11,7 +11,31 @@ class User(Base):
     username = Column(String, unique=True, index=True)
     hashed_password = Column(String)
 
-    materials = relationship("LearningMaterial", back_populates="owner")
+    notes = relationship("LearningNote", back_populates="owner")
+
+
+class LearningNote(Base):
+    __tablename__ = "learning_notes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id"))
+
+    owner = relationship("User", back_populates="notes")
+    sources = relationship("Source", back_populates="note", cascade="all, delete-orphan")
+    material = relationship("LearningMaterial", uselist=False, back_populates="note", cascade="all, delete-orphan")
+
+
+class Source(Base):
+    __tablename__ = "sources"
+
+    id = Column(Integer, primary_key=True, index=True)
+    type = Column(String, nullable=False)  # 'file', 'url'
+    path = Column(String, nullable=False)
+    content = Column(Text, nullable=True) # 요약 or 미리보기
+    note_id = Column(Integer, ForeignKey("learning_notes.id"))
+
+    note = relationship("LearningNote", back_populates="sources")
 
 
 class LearningMaterial(Base):
@@ -21,12 +45,12 @@ class LearningMaterial(Base):
     summary = Column(Text, nullable=False)
     mindmap = Column(JSON, nullable=True)
     audio_url = Column(String, nullable=True)
-    owner_id = Column(Integer, ForeignKey("users.id"))
+    note_id = Column(Integer, ForeignKey("learning_notes.id"))
 
-    owner = relationship("User", back_populates="materials")
-    key_topics = relationship("KeyTopic", back_populates="material")
-    quiz_items = relationship("QuizItem", back_populates="material")
-    flashcards = relationship("Flashcard", back_populates="material")
+    note = relationship("LearningNote", back_populates="material")
+    key_topics = relationship("KeyTopic", back_populates="material", cascade="all, delete-orphan")
+    quiz_items = relationship("QuizItem", back_populates="material", cascade="all, delete-orphan")
+    flashcards = relationship("Flashcard", back_populates="material", cascade="all, delete-orphan")
 
 
 class KeyTopic(Base):

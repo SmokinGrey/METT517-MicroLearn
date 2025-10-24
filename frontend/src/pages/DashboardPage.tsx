@@ -5,23 +5,19 @@ import ErrorMessage from '../components/ErrorMessage';
 import LoadingSpinner from '../components/LoadingSpinner';
 import '../App.css';
 
-interface LearningMaterial {
+interface LearningNote {
   id: number;
-  summary: string;
-  owner_id: number;
-  key_topics: any[];
-  quiz_items: any[];
-  flashcards: any[];
+  title: string;
 }
 
 function DashboardPage() {
-  const [materials, setMaterials] = useState<LearningMaterial[]>([]);
+  const [notes, setNotes] = useState<LearningNote[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const token = useAuthStore((state) => state.token);
 
   useEffect(() => {
-    const fetchMaterials = async () => {
+    const fetchNotes = async () => {
       if (!token) {
         setError('로그인이 필요합니다.');
         return;
@@ -31,7 +27,7 @@ function DashboardPage() {
       setError('');
 
       try {
-        const response = await fetch(`${process.env.REACT_APP_API_URL}/api/my-materials`, {
+        const response = await fetch(`${process.env.REACT_APP_API_URL}/api/notes`, {
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -42,11 +38,11 @@ function DashboardPage() {
           throw new Error('인증이 만료되었습니다. 다시 로그인해주세요.');
         }
         if (!response.ok) {
-          throw new Error((await response.json()).detail || '자료를 불러오는 중 오류 발생');
+          throw new Error((await response.json()).detail || '학습 노트를 불러오는 중 오류 발생');
         }
 
-        const data: LearningMaterial[] = await response.json();
-        setMaterials(data);
+        const data: LearningNote[] = await response.json();
+        setNotes(data);
       } catch (err: any) {
         setError(err.message);
       } finally {
@@ -54,25 +50,25 @@ function DashboardPage() {
       }
     };
 
-    fetchMaterials();
+    fetchNotes();
   }, [token]);
 
   return (
     <header className="App-header">
-      <h1>내 학습 자료</h1>
+      <h1>내 학습 노트</h1>
       {isLoading && <LoadingSpinner />}
       {error && <ErrorMessage message={error} />}
       <div style={{ width: '80%', maxWidth: '1000px' }}>
-        {materials.length > 0 ? (
-          materials.map(material => (
-            <Link to={`/materials/${material.id}`} key={material.id} className="summary-result-link">
+        {notes.length > 0 ? (
+          notes.map(note => (
+            <Link to={`/notes/${note.id}`} key={note.id} className="summary-result-link">
               <div className="summary-result" style={{ textAlign: 'left', marginBottom: '1rem' }}>
-                <p>{material.summary.substring(0, 200)}...</p>
+                <p>{note.title}</p>
               </div>
             </Link>
           ))
         ) : (
-          !isLoading && <p>아직 생성된 학습 자료가 없습니다.</p>
+          !isLoading && <p>아직 생성된 학습 노트가 없습니다.</p>
         )}
       </div>
     </header>

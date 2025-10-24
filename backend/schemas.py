@@ -2,6 +2,42 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Any
 
 
+# --- Source Models ---
+
+class SourceBase(BaseModel):
+    type: str
+    path: str
+    content: Optional[str] = None
+
+class SourceCreate(SourceBase):
+    pass
+
+class Source(SourceBase):
+    id: int
+    note_id: int
+
+    class Config:
+        orm_mode = True
+
+
+# --- Learning Note Models ---
+
+class LearningNoteBase(BaseModel):
+    title: str
+
+class LearningNoteCreate(LearningNoteBase):
+    pass
+
+class LearningNote(LearningNoteBase):
+    id: int
+    owner_id: int
+    sources: List[Source] = []
+    # material: Optional['LearningMaterial'] = None # 순환 참조 방지를 위해 주석 처리 또는 ForwardRef 사용
+
+    class Config:
+        orm_mode = True
+
+
 # --- MicroLearn Core Models ---
 
 # Base models for creation
@@ -48,7 +84,7 @@ class KeyTopic(BaseModel):
 class LearningMaterial(BaseModel):
     id: int
     summary: str
-    owner_id: int
+    note_id: int
     key_topics: List[KeyTopic] = []
     quiz_items: List[QuizItem] = []
     flashcards: List[FlashcardItem] = []
@@ -56,6 +92,9 @@ class LearningMaterial(BaseModel):
     audio_url: Optional[str] = None
     class Config:
         orm_mode = True
+
+# 순환 참조 해결
+LearningNote.update_forward_refs(LearningMaterial=LearningMaterial)
 
 
 # --- Auth Models ---
@@ -79,7 +118,7 @@ class UserCreate(UserBase):
 
 class User(UserBase):
     id: int
-    materials: List[LearningMaterial] = []
+    notes: List[LearningNote] = []
 
     class Config:
         orm_mode = True

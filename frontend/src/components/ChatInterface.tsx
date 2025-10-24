@@ -18,9 +18,9 @@ const styles: { [key: string]: React.CSSProperties } = {
 
 interface Message { sender: 'user' | 'ai'; text: string; }
 interface SourceDocument { page_content: string; metadata: any; }
-interface ChatInterfaceProps { materialId: number; }
+interface ChatInterfaceProps { noteId: number; }
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({ materialId }) => {
+const ChatInterface: React.FC<ChatInterfaceProps> = ({ noteId }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sources, setSources] = useState<SourceDocument[]>([]);
   const [input, setInput] = useState('');
@@ -49,7 +49,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ materialId }) => {
     setError('');
 
     try {
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/materials/${materialId}/chat`, {
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/notes/${noteId}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ question: currentInput }),
