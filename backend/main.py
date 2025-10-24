@@ -20,7 +20,10 @@ import trafilatura
 from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound
 import re
 
-from . import auth, crud, models, schemas, rag_handler
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
+
+from . import auth, crud, models, schemas, rag_handler, tts_handler
 from .database import SessionLocal, engine
 
 load_dotenv() # .env 파일에서 환경 변수 로드
@@ -28,6 +31,9 @@ load_dotenv() # .env 파일에서 환경 변수 로드
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
+
+# 정적 파일(오디오 등) 제공을 위한 설정
+app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
 # CORS 미들웨어 추가
 origins = [
@@ -240,6 +246,14 @@ async def _generate_ai_materials(text: str, db: Session, user_id: int):
         
         # 스키마를 사용하여 데이터 유효성 검사 및 변환
         validated_material = schemas.LearningMaterialCreate(**response_json)
+
+        # --- 🎵 오디오 브리핑 생성 ---
+        audio_url = None
+        if validated_material.summary:
+            print("요약 텍스트로 오디오 브리핑 생성을 시도합니다...")
+            audio_url = tts_handler.create_audio_briefing(validated_material.summary)
+        validated_material.audio_url = audio_url
+        # --- 🎵 오디오 브리핑 생성 완료 ---
         
         # 데이터베이스에 저장
         db_material = crud.create_learning_material(db=db, material=validated_material, user_id=user_id)

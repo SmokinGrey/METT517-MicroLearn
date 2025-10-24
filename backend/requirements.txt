@@ -55,3 +55,4 @@ chromadb
 tiktoken
 trafilatura
 youtube-transcript-api
+openai
